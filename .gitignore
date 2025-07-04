@@ -3,5 +3,5 @@
 dags/**/*.pyc
 /.idea
 /logs
-/db-data
+db-data*
 .DS_Store

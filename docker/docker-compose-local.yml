@@ -1,4 +1,4 @@
-version: "3.7"
+# version: "3.7"
 services:
   postgres:
     image: postgres:13-alpine
@@ -12,12 +12,46 @@ services:
         max-file: "3"
     volumes:
       - "${PWD}/db-data:/var/lib/postgresql/data"
+    ports:
+      - "5433:5432"
+
+  writedb:
+    image: postgres:13-alpine
+    environment:
+      - POSTGRES_USER=airflow_write
+      - POSTGRES_PASSWORD=airflow_write
+      - POSTGRES_DB=airflow_write
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+    volumes:
+      - "${PWD}/db-data-writedb:/var/lib/postgresql/data"
+    ports:
+      - "5434:5432"
+
+  readdb:
+    image: postgres:13-alpine
+    environment:
+      - POSTGRES_USER=airflow_read
+      - POSTGRES_PASSWORD=airflow_read
+      - POSTGRES_DB=airflow_read
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+    volumes:
+      - "${PWD}/db-data-readdb:/var/lib/postgresql/data"
+    ports:
+      - "5435:5432"
 
   local-runner:
     image: amazon/mwaa-local:2_10_3
     restart: always
     depends_on:
       - postgres
+      - writedb
+      - readdb
     environment:
       - LOAD_EX=n
       - EXECUTOR=Local
