@@ -2,6 +2,7 @@
 import json
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from airflow.decorators import dag, task
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
@@ -14,8 +15,8 @@ DB_CONN_ID = "readdb_conn" # Default to readdb, can be changed via connections
 
 @dag(
     dag_id="pokemon_to_s3_to_db_dag",
-    start_date=datetime(2025, 1, 1),
-    schedule_interval=None,
+    start_date=datetime(2025, 7, 9, tz=ZoneInfo("America/Toronto")),
+    schedule='0 8,12 * * *',
     catchup=False,
     tags=["example", "localstack", "pokemon"],
     # Define default parameters for the DAG. These can be overridden in the UI.
