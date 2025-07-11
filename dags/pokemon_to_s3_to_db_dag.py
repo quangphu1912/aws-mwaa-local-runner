@@ -15,7 +15,7 @@ DB_CONN_ID = "readdb_conn" # Default to readdb, can be changed via connections
 
 @dag(
     dag_id="pokemon_to_s3_to_db_dag",
-    start_date=datetime(2025, 7, 9, tz=ZoneInfo("America/Toronto")),
+    start_date=datetime(2025, 7, 9, tzinfo=ZoneInfo("America/Toronto")),
     schedule='0 8,12 * * *',
     catchup=False,
     tags=["example", "localstack", "pokemon"],
