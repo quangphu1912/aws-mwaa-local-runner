@@ -1,21 +1,20 @@
-
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from airflow.decorators import dag, task
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
-from airflow.sensors.external_task import ExternalTaskSensor
-from airflow.utils.state import DagRunState
 
 # --- Airflow Connection IDs ---
 READDB_CONN_ID = "readdb_conn"
 WRITEDB_CONN_ID = "writedb_conn"
 
+
 @dag(
     dag_id="etl_from_readdb_to_writedb_phase_1",
     start_date=datetime(2025, 7, 9, tzinfo=ZoneInfo("America/Toronto")),
-    schedule='40 23/4 * * *',  # Same schedule as DAG 1
+    schedule=None,  # This DAG is now triggered by pokemon_to_s3_to_db_dag
     catchup=False,
     tags=["etl", "phase_1", "localstack", "data_transfer"],
     doc_md="""
@@ -32,17 +31,6 @@ WRITEDB_CONN_ID = "writedb_conn"
     """,
 )
 def etl_from_readdb_to_writedb_phase_1():
-    # Sensor to wait for DAG 1 (pokemon_to_s3_to_db_dag) to complete
-    wait_for_pokemon_dag = ExternalTaskSensor(
-        task_id="wait_for_pokemon_to_s3_to_db_dag",
-        external_dag_id="pokemon_to_s3_to_db_dag",
-        external_task_id=None,
-        allowed_states=[DagRunState.SUCCESS],
-        failed_states=[DagRunState.FAILED],
-        mode="reschedule",
-        poke_interval=10,
-        timeout=3600,
-    )
 
     @task
     def transfer_data_from_readdb_to_writedb(
@@ -120,9 +108,16 @@ def etl_from_readdb_to_writedb_phase_1():
         write_conn_id=WRITEDB_CONN_ID,
         source_table=SOURCE_TABLE,
         target_table=TARGET_TABLE,
-        target_schema=TARGET_SCHEMA
+        target_schema=TARGET_SCHEMA,
     )
 
-    wait_for_pokemon_dag >> transfer_task
+    trigger_phase_2_dag = TriggerDagRunOperator(
+        task_id="trigger_etl_phase_2_dag",
+        trigger_dag_id="etl_final_processing_phase_2",
+        wait_for_completion=False,
+    )
+
+    transfer_task >> trigger_phase_2_dag
+
 
 etl_from_readdb_to_writedb_phase_1()

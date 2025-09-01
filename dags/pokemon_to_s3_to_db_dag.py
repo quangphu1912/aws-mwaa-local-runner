@@ -1,22 +1,23 @@
-
 import json
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from airflow.decorators import dag, task
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 import requests
 
 # --- Airflow Connection IDs ---
 AWS_CONN_ID = "aws_default"
-DB_CONN_ID = "readdb_conn" # Default to readdb, can be changed via connections
+DB_CONN_ID = "readdb_conn"  # Default to readdb, can be changed via connections
+
 
 @dag(
     dag_id="pokemon_to_s3_to_db_dag",
     start_date=datetime(2025, 7, 9, tzinfo=ZoneInfo("America/Toronto")),
-    schedule='40 23/4 * * *',
+    schedule='15 0 * * *',
     catchup=False,
     tags=["example", "localstack", "pokemon"],
     # Define default parameters for the DAG. These can be overridden in the UI.
@@ -25,7 +26,7 @@ DB_CONN_ID = "readdb_conn" # Default to readdb, can be changed via connections
         "s3_key": "pokemon/data.json",
         "db_table": "pokemon",
         "db_schema": "source_tables",
-        "db_conn_id": "readdb_conn", # NEW: Parameter for the connection ID
+        "db_conn_id": "readdb_conn",  # NEW: Parameter for the connection ID
     },
     doc_md="""
     ### Pokémon API to S3 to DB DAG (Hook & Schema Version)
@@ -52,7 +53,7 @@ def pokemon_to_s3_to_db_dag():
     def fetch_pokemon_data():
         """Fetches a list of Pokémon from the PokéAPI."""
         logging.info("Fetching data from PokéAPI...")
-        response = requests.get("https://pokeapi.co/api/v2/pokemon?limit=151") # Gen 1
+        response = requests.get("https://pokeapi.co/api/v2/pokemon?limit=151")  # Gen 1
         response.raise_for_status()
         logging.info("Data fetched successfully.")
         return response.json()['results']
@@ -112,7 +113,7 @@ def pokemon_to_s3_to_db_dag():
             ON CONFLICT (name) DO NOTHING;
             """
             cursor.execute(insert_sql, (pokemon["name"], pokemon["url"]))
-        
+
         conn.commit()
         cursor.close()
         conn.close()
@@ -123,12 +124,23 @@ def pokemon_to_s3_to_db_dag():
     S3_KEY_PATH = "{{ params.s3_key }}"
     DB_TABLE = "{{ params.db_table }}"
     DB_SCHEMA = "{{ params.db_schema }}"
-    DB_CONN_ID_PARAM = "{{ params.db_conn_id }}" # NEW: Get conn_id from params
+    DB_CONN_ID_PARAM = "{{ params.db_conn_id }}"  # NEW: Get conn_id from params
 
     api_data = fetch_pokemon_data()
     s3_path = upload_to_s3(api_data, s3_bucket=S3_BUCKET, s3_key=S3_KEY_PATH)
-    # Pass the schema and conn_id to the database task
-    s3_to_database(s3_path, s3_bucket=S3_BUCKET, table_name=DB_TABLE, schema_name=DB_SCHEMA, db_conn_id=DB_CONN_ID_PARAM)
+    s3_to_db_task = s3_to_database(
+        s3_path, s3_bucket=S3_BUCKET, table_name=DB_TABLE, schema_name=DB_SCHEMA, db_conn_id=DB_CONN_ID_PARAM
+    )
+
+    # NEW: Add a task to trigger the next DAG in the pipeline
+    trigger_phase_1_dag = TriggerDagRunOperator(
+        task_id="trigger_etl_phase_1_dag",
+        trigger_dag_id="etl_from_readdb_to_writedb_phase_1",
+        wait_for_completion=False,  # Set to True if you want this DAG to wait for the triggered DAG
+    )
+
+    s3_to_db_task >> trigger_phase_1_dag
+
 
 # Instantiate the DAG
 pokemon_to_s3_to_db_dag()
